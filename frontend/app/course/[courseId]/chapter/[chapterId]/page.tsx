@@ -3,8 +3,23 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CheckCircle2, XCircle, ChevronLeft } from "lucide-react";
 
-interface Quiz {
+// Tipe Data
+interface QuizItem {
   question: string;
   options: string[];
   correct_answer: string;
@@ -12,7 +27,7 @@ interface Quiz {
 
 interface ChapterContent {
   content_markdown: string;
-  quiz: Quiz;
+  quizzes: QuizItem[];
 }
 
 export default function ChapterPage() {
@@ -23,29 +38,28 @@ export default function ChapterPage() {
 
   const [content, setContent] = useState<ChapterContent | null>(null);
   const [loading, setLoading] = useState(true);
-  // Tambah state error baru
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [quizFeedback, setQuizFeedback] = useState<"correct" | "wrong" | null>(
-    null,
+
+  // --- STATE KUIS ---
+  // Menyimpan status jawaban per soal: 'unanswered', 'correct'
+  const [quizStatus, setQuizStatus] = useState<
+    Record<number, "unanswered" | "correct">
+  >({});
+
+  // Menyimpan opsi yang SALAH (dikunci) per soal: { [questionIndex]: [optionIndex1, optionIndex2] }
+  const [lockedOptions, setLockedOptions] = useState<Record<number, number[]>>(
+    {},
   );
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = () => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/login");
       return;
     }
     fetchContent(token);
-  };
+  }, []);
 
   const fetchContent = async (token: string) => {
-    setLoading(true);
-    setErrorMsg(null); // Reset error
-
     try {
       const res = await fetch(
         `http://localhost:8000/chapters/${chapterId}/content`,
@@ -54,194 +68,205 @@ export default function ChapterPage() {
         },
       );
 
-      // Tangani Rate Limit (429)
-      if (res.status === 429) {
-        const errData = await res.json();
-        setErrorMsg(errData.detail || "Server sibuk. Tunggu sebentar.");
-        setLoading(false);
-        return;
-      }
-
       if (!res.ok) throw new Error("Gagal load materi");
 
       const data = await res.json();
       setContent(data);
+
+      // Reset state kuis saat load baru
+      setQuizStatus({});
+      setLockedOptions({});
     } catch (error) {
-      setErrorMsg("Terjadi kesalahan jaringan.");
+      alert("Terjadi kesalahan saat memuat materi.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ... (Fungsi handleAnswerQuiz & handleCompleteChapter TETAP SAMA) ...
-  const handleAnswerQuiz = (selectedOption: string) => {
+  const handleAnswer = (
+    qIndex: number,
+    selectedOption: string,
+    optionIndex: number,
+  ) => {
     if (!content) return;
-    if (selectedOption === content.quiz.correct_answer) {
-      setQuizFeedback("correct");
+    const currentQuiz = content.quizzes[qIndex];
+
+    // Jika jawaban benar
+    if (selectedOption === currentQuiz.correct_answer) {
+      setQuizStatus((prev) => ({ ...prev, [qIndex]: "correct" }));
     } else {
-      setQuizFeedback("wrong");
+      // Jika salah, kunci opsi tersebut (disable)
+      setLockedOptions((prev) => {
+        const currentLocks = prev[qIndex] || [];
+        if (!currentLocks.includes(optionIndex)) {
+          return { ...prev, [qIndex]: [...currentLocks, optionIndex] };
+        }
+        return prev;
+      });
     }
   };
 
   const handleCompleteChapter = async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
+
     try {
       await fetch(`http://localhost:8000/chapters/${chapterId}/complete`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}` },
       });
-      alert("Bab Selesai! Kembali ke Dashboard.");
+
+      // Redirect kembali ke dashboard atau bisa juga next chapter logic
       router.push("/");
     } catch (error) {
       alert("Gagal menyimpan progres.");
     }
   };
 
-  // --- RENDER VIEW ---
+  // Cek apakah semua kuis sudah terjawab benar
+  const allCorrect =
+    content && content.quizzes
+      ? content.quizzes.length > 0 &&
+        content.quizzes.every((_, idx) => quizStatus[idx] === "correct")
+      : true; // Jika tidak ada kuis, anggap selesai
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-        <p className="text-gray-500">Guru AI sedang menyiapkan materi...</p>
-      </div>
-    );
-  }
-
-  // TAMPILAN JIKA ERROR (RATE LIMIT)
-  if (errorMsg) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6 text-center">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md border border-red-100">
-          <div className="text-5xl mb-4">⏳</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Sabar ya!</h2>
-          <p className="text-gray-600 mb-6">{errorMsg}</p>
-
-          <div className="flex gap-3 justify-center">
-            <button
-              onClick={() => router.push("/")}
-              className="px-6 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
-            >
-              Ke Dashboard
-            </button>
-            <button
-              onClick={loadData}
-              className="px-6 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg"
-            >
-              Coba Lagi ↻
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!content) return null;
-
-  // ... (Render Materi & Kuis TETAP SAMA seperti kode sebelumnya) ...
   return (
-    <div className="min-h-screen bg-white">
-      {/* Navbar Sederhana */}
-      <div className="bg-gray-900 text-white p-4 sticky top-0 z-10 shadow-md flex items-center justify-between">
-        <button
-          onClick={() => router.push("/")}
-          className="text-gray-300 hover:text-white flex items-center gap-2 text-sm font-bold"
-        >
-          ← Kembali ke Dashboard
-        </button>
-        <span className="text-sm font-mono text-gray-400">
-          Chapter ID: {chapterId}
-        </span>
-      </div>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--header-height": "calc(var(--spacing) * 12)",
+        } as React.CSSProperties
+      }
+    >
+      {/* Sidebar tanpa setView (Mode Navigasi) */}
+      <AppSidebar variant="inset" />
 
-      <div className="max-w-3xl mx-auto p-6 md:p-10">
-        <article className="prose prose-lg prose-blue max-w-none text-gray-800 mb-12">
-          <ReactMarkdown>{content.content_markdown}</ReactMarkdown>
-        </article>
+      <SidebarInset>
+        <SiteHeader />
 
-        <hr className="my-10 border-gray-200" />
+        <div className="flex flex-1 flex-col gap-4 p-4 pt-0 max-w-4xl mx-auto w-full">
+          {/* Tombol Kembali */}
+          <div className="mb-2">
+            <Button
+              variant="ghost"
+              className="gap-2 pl-0 hover:bg-transparent hover:underline"
+              onClick={() => router.push("/")}
+            >
+              <ChevronLeft size={16} /> Kembali ke Materi
+            </Button>
+          </div>
 
-        {content.quiz &&
-        content.quiz.options &&
-        content.quiz.options.length > 0 ? (
-          <div className="bg-blue-50 rounded-2xl p-8 border border-blue-100 shadow-sm">
-            {/* ... Isi Kuis sama persis seperti kode sebelumnya ... */}
-            <div className="flex items-center gap-3 mb-6">
-              <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full tracking-wide">
-                KUIS
-              </span>
-              <h3 className="font-bold text-gray-900 text-lg">Uji Pemahaman</h3>
+          {loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-8 w-3/4" />
+              <Skeleton className="h-64 w-full" />
+              <Skeleton className="h-40 w-full" />
             </div>
-            <p className="text-gray-800 mb-6 text-lg font-medium leading-relaxed">
-              {content.quiz.question}
-            </p>
-            <div className="grid gap-3">
-              {content.quiz.options?.map((opt, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleAnswerQuiz(opt)}
-                  disabled={quizFeedback === "correct"}
-                  className={`w-full text-left p-4 rounded-xl border-2 transition font-medium relative overflow-hidden
-                  ${
-                    quizFeedback === "correct" &&
-                    opt === content.quiz.correct_answer
-                      ? "bg-green-100 border-green-500 text-green-900"
-                      : quizFeedback === "wrong" &&
-                          opt !== content.quiz.correct_answer
-                        ? "opacity-50 bg-gray-50 border-gray-200"
-                        : "bg-white border-gray-200 hover:border-blue-400 hover:shadow-md"
-                  }
-                `}
-                >
-                  {opt}
-                  {quizFeedback === "correct" &&
-                    opt === content.quiz.correct_answer && (
-                      <span className="absolute right-4 top-4 text-green-600">
-                        ✓
-                      </span>
-                    )}
-                </button>
-              ))}
-            </div>
-            <div className="mt-8 flex items-center justify-between h-14">
-              {quizFeedback === "wrong" && (
-                <p className="text-red-600 font-bold flex items-center gap-2 animate-pulse">
-                  <span>❌</span> Jawaban salah, coba lagi!
-                </p>
-              )}
-              {quizFeedback === "correct" && (
-                <div className="flex items-center justify-between w-full animate-fade-in-up">
-                  <p className="text-green-700 font-bold text-lg flex items-center gap-2">
-                    <span>🎉</span> Benar!
-                  </p>
-                  <button
-                    onClick={handleCompleteChapter}
-                    className="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700 shadow-lg hover:shadow-xl transition transform hover:-translate-y-1"
-                  >
-                    Selesai & Lanjut →
-                  </button>
+          ) : content ? (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-20">
+              {/* --- MATERI UTAMA --- */}
+              <Card className="shadow-sm border-none bg-background">
+                <CardContent className="pt-6 prose prose-blue max-w-none dark:prose-invert">
+                  <ReactMarkdown>{content.content_markdown}</ReactMarkdown>
+                </CardContent>
+              </Card>
+
+              {/* --- AREA KUIS --- */}
+              {content.quizzes && content.quizzes.length > 0 && (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3">
+                    <Badge variant="secondary" className="text-sm px-3 py-1">
+                      Kuis Interaktif
+                    </Badge>
+                    <span className="text-muted-foreground text-sm">
+                      Selesaikan semua soal untuk lanjut.
+                    </span>
+                  </div>
+
+                  {content.quizzes.map((quiz, qIndex) => {
+                    const isCorrect = quizStatus[qIndex] === "correct";
+
+                    return (
+                      <Card
+                        key={qIndex}
+                        className={`overflow-hidden transition-all duration-300 ${isCorrect ? "border-green-200 bg-green-50/30" : "border-border"}`}
+                      >
+                        <CardHeader className="bg-muted/30 pb-4">
+                          <CardTitle className="text-base font-medium flex gap-3 items-start">
+                            <span className="bg-primary/10 text-primary w-6 h-6 rounded flex items-center justify-center text-xs shrink-0 mt-0.5">
+                              {qIndex + 1}
+                            </span>
+                            {quiz.question}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-4 grid gap-3">
+                          {quiz.options.map((opt, optIndex) => {
+                            const isLocked =
+                              lockedOptions[qIndex]?.includes(optIndex);
+                            const isSelectedCorrect =
+                              isCorrect && opt === quiz.correct_answer;
+
+                            return (
+                              <button
+                                key={optIndex}
+                                onClick={() =>
+                                  handleAnswer(qIndex, opt, optIndex)
+                                }
+                                disabled={isCorrect || isLocked}
+                                className={`
+                                  relative w-full text-left p-4 rounded-lg border-2 text-sm font-medium transition-all duration-200
+                                  flex items-center justify-between group
+                                  ${
+                                    isSelectedCorrect
+                                      ? "bg-green-100 border-green-500 text-green-900 shadow-sm" // Jawaban Benar
+                                      : isLocked
+                                        ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60" // Jawaban Salah (Kekunci)
+                                        : "bg-background border-muted hover:border-primary/50 hover:shadow-md" // Normal
+                                  }
+                                `}
+                              >
+                                <span>{opt}</span>
+                                {isSelectedCorrect && (
+                                  <CheckCircle2 className="text-green-600 w-5 h-5 animate-in zoom-in" />
+                                )}
+                                {isLocked && (
+                                  <XCircle className="text-gray-400 w-5 h-5" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </CardContent>
+                        {isCorrect && (
+                          <CardFooter className="bg-green-100/50 py-3 px-6 text-green-700 text-sm font-semibold flex items-center gap-2">
+                            <CheckCircle2 size={16} /> Jawaban Benar!
+                          </CardFooter>
+                        )}
+                      </Card>
+                    );
+                  })}
                 </div>
               )}
+
+              {/* --- FOOTER ACTION --- */}
+              <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t flex justify-center z-10 md:pl-[--sidebar-width]">
+                <div className="w-full max-w-4xl flex justify-end">
+                  <Button
+                    size="lg"
+                    onClick={handleCompleteChapter}
+                    disabled={!allCorrect} // Disable jika belum semua benar
+                    className={`transition-all duration-300 ${allCorrect ? "bg-green-600 hover:bg-green-700 shadow-lg hover:shadow-green-500/20" : ""}`}
+                  >
+                    {allCorrect
+                      ? "Selesai & Lanjut 🚀"
+                      : "Selesaikan Kuis Dulu 🔒"}
+                  </Button>
+                </div>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="bg-yellow-50 p-6 rounded-xl border border-yellow-200 text-center shadow-sm">
-            <h3 className="text-yellow-800 font-bold mb-2">
-              Kuis Tidak Tersedia
-            </h3>
-            <p className="text-yellow-700 mb-4 text-sm">
-              Maaf, AI gagal membuat kuis. Kamu bisa melewati bab ini.
-            </p>
-            <button
-              onClick={handleCompleteChapter}
-              className="bg-yellow-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-yellow-700 transition"
-            >
-              Lewati Bab Ini →
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+          ) : null}
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

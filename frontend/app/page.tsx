@@ -1,6 +1,20 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardFooter,
+} from "@/components/ui/card"; // Asumsi pakai shadcn card
+import { Badge } from "@/components/ui/badge"; // Asumsi pakai shadcn badge
 
 // --- Tipe Data Typescript ---
 interface Chapter {
@@ -23,7 +37,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
 
-  // State View: Hanya Dashboard & Create (Learning sudah dipisah)
+  // State View
   const [view, setView] = useState<"dashboard" | "create">("dashboard");
 
   // State Data
@@ -126,227 +140,198 @@ export default function Dashboard() {
       alert("Ups! Selesaikan bab sebelumnya dulu ya.");
       return;
     }
-    // Redirect ke halaman detail baru
     router.push(`/course/${course.id}/chapter/${chapter.id}`);
   };
 
   if (!token) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
-      {/* NAVBAR */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-10 px-6 py-4 flex justify-between items-center shadow-sm">
-        <h1 className="text-2xl font-extrabold text-blue-600 tracking-tight">
-          MimoAI 🚀
-        </h1>
-        <div className="flex gap-4 items-center">
-          <button
-            onClick={() => setView("dashboard")}
-            className={`px-4 py-2 rounded-lg font-medium transition ${view === "dashboard" ? "bg-blue-50 text-blue-600" : "text-gray-500 hover:bg-gray-100"}`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setView("create")}
-            className={`px-4 py-2 rounded-lg font-medium transition ${view === "create" ? "bg-blue-50 text-blue-600" : "text-gray-500 hover:bg-gray-100"}`}
-          >
-            + Buat Baru
-          </button>
-          <button
-            onClick={handleLogout}
-            className="text-red-500 font-medium text-sm hover:underline ml-2"
-          >
-            Keluar
-          </button>
-        </div>
-      </nav>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--header-height": "calc(var(--spacing) * 12)",
+        } as React.CSSProperties
+      }
+    >
+      {/* Pass setView ke Sidebar */}
+      <AppSidebar variant="inset" setView={setView} />
 
-      {/* --- CONTENT AREA --- */}
-      <main className="max-w-5xl mx-auto p-6">
-        {/* 1. VIEW DASHBOARD */}
-        {view === "dashboard" && (
-          <div className="animate-fade-in">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">
-              Pembelajaran Saya
-            </h2>
+      <SidebarInset>
+        <SiteHeader />
 
-            {myCourses.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
-                <p className="text-gray-500 mb-4 text-lg">
-                  Anda belum mengambil kursus apapun.
-                </p>
-                <button
-                  onClick={() => setView("create")}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition"
-                >
-                  Mulai Belajar Sesuatu
-                </button>
-              </div>
-            ) : (
-              <div className="grid gap-8 md:grid-cols-2">
-                {myCourses.map((course) => (
-                  <div
-                    key={course.id}
-                    className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
-                  >
-                    <div className="p-6 bg-gradient-to-r from-blue-50 to-white border-b border-gray-100">
-                      <h3 className="font-bold text-xl mb-1 text-gray-900">
-                        {course.title}
-                      </h3>
-                      <p className="text-sm text-gray-500 line-clamp-2">
-                        {course.description}
-                      </p>
-                    </div>
-
-                    {/* Progress Bar Visual */}
-                    <div className="flex w-full h-2 bg-gray-100">
-                      {course.chapters.map((ch) => (
-                        <div
-                          key={ch.chapter_number}
-                          className={`flex-1 ${ch.is_completed ? "bg-green-500" : "bg-transparent"}`}
-                        ></div>
-                      ))}
-                    </div>
-
-                    <div className="p-4 space-y-3 flex-1 overflow-y-auto max-h-80">
-                      {course.chapters.map((ch) => (
-                        <button
-                          key={ch.chapter_number}
-                          onClick={() => handleOpenChapter(course, ch)}
-                          disabled={ch.is_locked}
-                          className={`w-full flex items-center p-3 rounded-lg border transition text-left group
-                            ${
-                              ch.is_completed
-                                ? "bg-green-50 border-green-200 hover:bg-green-100"
-                                : ch.is_locked
-                                  ? "bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed"
-                                  : "bg-white border-gray-200 hover:border-blue-300 hover:shadow-md cursor-pointer"
-                            }
-                          `}
-                        >
+        {/* AREA KONTEN UTAMA */}
+        <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+          {/* VIEW: DASHBOARD */}
+          {view === "dashboard" && (
+            <div className="animate-in fade-in duration-200">
+              {myCourses.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 bg-muted/30 border border-dashed rounded-xl">
+                  <p className="text-muted-foreground mb-4 text-lg">
+                    Anda belum mengambil kursus apapun.
+                  </p>
+                  <Button onClick={() => setView("create")}>
+                    Mulai Belajar Sesuatu
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {myCourses.map((course) => (
+                    <Card
+                      key={course.id}
+                      className="flex flex-col hover:shadow-lg mt-4 transition-shadow"
+                    >
+                      <div className="h-2 w-full bg-muted flex">
+                        {/* Visual Progress Bar di Top Card */}
+                        {course.chapters.map((ch) => (
                           <div
+                            key={ch.chapter_number}
+                            className={`flex-1 ${ch.is_completed ? "bg-green-500" : "bg-transparent"}`}
+                          />
+                        ))}
+                      </div>
+                      <CardHeader className="bg-muted/20 pb-4">
+                        <CardTitle className="text-lg">
+                          {course.title}
+                        </CardTitle>
+                        <CardDescription className="line-clamp-2">
+                          {course.description}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="p-4 flex-1 space-y-2">
+                        {course.chapters.map((ch) => (
+                          <div
+                            key={ch.chapter_number}
+                            onClick={() => handleOpenChapter(course, ch)}
                             className={`
-                            w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold mr-4 shrink-0
-                            ${ch.is_completed ? "bg-green-500 text-white" : ch.is_locked ? "bg-gray-300 text-gray-500" : "bg-blue-600 text-white"}
-                          `}
+                              flex items-center justify-between p-3 rounded-md border text-sm cursor-pointer transition-colors
+                              ${
+                                ch.is_locked
+                                  ? "bg-muted text-muted-foreground opacity-70 cursor-not-allowed"
+                                  : ch.is_completed
+                                    ? "bg-green-50 border-green-200 text-green-900"
+                                    : "bg-background hover:bg-accent hover:text-accent-foreground"
+                              }
+                            `}
                           >
-                            {ch.is_completed ? "✓" : ch.chapter_number}
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={`
+                                flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold
+                                ${ch.is_completed ? "bg-green-500 text-white" : ch.is_locked ? "bg-muted-foreground text-white" : "bg-primary text-primary-foreground"}
+                              `}
+                              >
+                                {ch.is_completed ? "✓" : ch.chapter_number}
+                              </span>
+                              <span className="font-medium truncate max-w-[150px]">
+                                {ch.title}
+                              </span>
+                            </div>
+                            {ch.is_locked && <span>🔒</span>}
                           </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-                          <div className="flex-1">
-                            <h4
-                              className={`font-semibold text-sm ${ch.is_locked ? "text-gray-400" : "text-gray-800"}`}
-                            >
-                              {ch.title}
-                            </h4>
-                            <p className="text-xs text-gray-500 line-clamp-1">
-                              {ch.summary}
-                            </p>
-                          </div>
-
-                          {ch.is_locked && (
-                            <span className="text-lg ml-2">🔒</span>
-                          )}
-                          {!ch.is_locked && !ch.is_completed && (
-                            <span className="text-lg ml-2 text-blue-500 group-hover:translate-x-1 transition">
-                              →
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 2. VIEW CREATE (GENERATE) */}
-        {view === "create" && (
-          <div className="max-w-2xl mx-auto py-10">
-            {!previewCourse ? (
-              <div className="text-center">
-                <h2 className="text-3xl font-bold mb-4 text-gray-800">
+          {/* VIEW: CREATE */}
+          {view === "create" && (
+            <div className="max-w-3xl mx-auto w-full py-10 animate-in fade-in duration-200">
+              {/* Input Section */}
+              <div className="text-center mb-10">
+                <h2 className="text-3xl font-bold mb-2">
                   Apa yang ingin kamu pelajari?
                 </h2>
-                <p className="text-gray-500 mb-8">
-                  AI akan menyusun kurikulum terstruktur khusus untukmu.
+                <p className="text-muted-foreground mb-8">
+                  Kamu dapat mempelajari materi yang sesuai dengan kebutuhanmu.
                 </p>
-
-                <div className="relative">
-                  <input
-                    type="text"
+                <div className="flex gap-2 max-w-xl mx-auto">
+                  <Input
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Contoh: Digital Marketing, Bahasa Jepang Dasar, React Native..."
-                    className="w-full p-5 rounded-2xl border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-lg"
+                    placeholder="Contoh: Digital Marketing, Bahasa Jepang Dasar..."
+                    className="h-10 text-lg"
                     onKeyDown={(e) =>
                       e.key === "Enter" && handleGeneratePreview()
                     }
                   />
-                  <button
+                  <Button
+                    size="lg"
                     onClick={handleGeneratePreview}
                     disabled={loading || !prompt}
-                    className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 transition"
                   >
                     {loading ? "Menyusun..." : "Generate"}
-                  </button>
+                  </Button>
                 </div>
               </div>
-            ) : (
-              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden animate-fade-in-up">
-                <div className="p-8 border-b border-gray-100 bg-blue-50">
-                  <h2 className="text-2xl font-bold text-blue-900">
-                    {previewCourse.title}
-                  </h2>
-                  <p className="text-gray-600 mt-2">
-                    {previewCourse.description}
-                  </p>
-                </div>
 
-                <div className="p-8 space-y-4">
-                  <h3 className="font-semibold text-gray-500 uppercase tracking-wider text-xs">
-                    Kurikulum
-                  </h3>
-                  {previewCourse.chapters.map((ch: any) => (
-                    <div
-                      key={ch.chapter_number}
-                      className="flex gap-4 items-start"
-                    >
-                      <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold mt-1">
-                        BAB {ch.chapter_number}
-                      </span>
-                      <div>
-                        <h4 className="font-bold text-gray-800">{ch.title}</h4>
-                        <p className="text-sm text-gray-500">{ch.summary}</p>
-                      </div>
+              {/* Preview Card Section */}
+              {previewCourse && (
+                <Card className="overflow-hidden border-2 border-primary/20 shadow-xl">
+                  <CardHeader className="bg-primary/5 border-b">
+                    <CardTitle className="text-2xl text-primary">
+                      {previewCourse.title}
+                    </CardTitle>
+                    <CardDescription className="text-base mt-2">
+                      {previewCourse.description}
+                    </CardDescription>
+                  </CardHeader>
+
+                  <CardContent className="p-6 space-y-4">
+                    <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                      Kurikulum
                     </div>
-                  ))}
-                </div>
+                    <div className="grid gap-3">
+                      {/* PERBAIKAN DI SINI: Tambahkan tanda tanya (?) dan fallback array kosong */}
+                      {previewCourse.chapters?.length > 0 ? (
+                        previewCourse.chapters.map((ch: any) => (
+                          <div
+                            key={ch.chapter_number}
+                            className="flex gap-4 p-3 rounded-lg bg-muted/50 items-start"
+                          >
+                            <Badge
+                              variant="outline"
+                              className="mt-0.5 shrink-0"
+                            >
+                              BAB {ch.chapter_number}
+                            </Badge>
+                            <div>
+                              <div className="font-semibold">{ch.title}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {ch.summary}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-muted-foreground text-sm italic">
+                          Tidak ada detail bab yang tersedia.
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
 
-                <div className="p-6 bg-gray-50 flex gap-4 border-t border-gray-100">
-                  <button
-                    onClick={() => setPreviewCourse(null)}
-                    className="flex-1 py-3 text-gray-600 font-semibold hover:bg-gray-200 rounded-lg transition"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={handleSaveCourse}
-                    disabled={loading}
-                    className="flex-1 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-lg transition"
-                  >
-                    {loading ? "Menyimpan..." : "Ambil Kelas Ini"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* VIEW LEARNING SUDAH DIHAPUS DARI SINI */}
-      </main>
-    </div>
+                  <CardFooter className="bg-muted/20 p-6 flex gap-4 justify-end border-t">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setPreviewCourse(null)}
+                    >
+                      Batal
+                    </Button>
+                    <Button onClick={handleSaveCourse} disabled={loading}>
+                      {loading ? "Menyimpan..." : "Ambil Kelas Ini"}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              )}
+            </div>
+          )}
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

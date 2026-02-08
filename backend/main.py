@@ -18,13 +18,13 @@ from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
 
 # --- KONFIGURASI ---
 GOOGLE_API_KEY = (
-    "AIzaSyAXAp_Cgm696Yu_Mzht4vUw2tFoDlkIAPo"  # Pastikan API KEY Anda ada di sini
+    "AIzaSyAhYtyu1S-Z1N1bcXDXdbLLU3HC6P17Ae0"  # Pastikan API KEY Anda ada di sini
 )
 SECRET_KEY = "4aeb5dfce0a4bc62c327fb326de5427c69c8f3f42febea52701fb220f5b71091"
 ALGORITHM = "HS256"
 
 genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel("gemini-2.5-flash-lite")
+model = genai.GenerativeModel("gemini-flash-latest")
 
 # --- DATABASE SETUP (MySQL) ---
 # Sesuaikan password jika perlu (format: root:password@localhost)
@@ -40,6 +40,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True)
+    email = Column(String(50), unique=True, index=True)
     password_hash = Column(String(255))
     courses = relationship("Course", back_populates="owner")
 
@@ -167,20 +168,53 @@ def login(
 
 @app.post("/generate-preview")
 async def generate_preview(request: CourseCreate):
+    # Prompt kita pertajam agar outputnya lebih bersih
     prompt = f"""
-    Buat silabus kursus singkat topik: "{request.topic}".
-    Bahasa Indonesia. Output JSON only.
-    Struktur: {{ "title": "...", "description": "...", "chapters": [ {{ "chapter_number": 1, "title": "...", "summary": "..." }} ] }}
-    Syarat: 3-5 Bab.
+    Bertindaklah sebagai ahli kurikulum.
+    Buat silabus kursus untuk topik: "{request.topic}".
+    Bahasa: Indonesia.
+
+    Output WAJIB HANYA JSON VALID (tanpa markdown ```json atau teks pembuka).
+    Struktur JSON:
+    {{
+        "title": "Judul Menarik",
+        "description": "Deskripsi singkat 1 kalimat",
+        "chapters": [
+            {{
+                "chapter_number": 1,
+                "title": "Judul Bab",
+                "summary": "Ringkasan materi"
+            }}
+        ]
+    }}
+    Syarat: Buat 3-5 Bab.
     """
+
     try:
         response = model.generate_content(prompt)
-        text = response.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(text)
+        raw_text = response.text
+
+        # --- LOGIC PEMBERSIH JSON (ANTI-CRASH) ---
+        # Cari kurung kurawal '{' pertama dan '}' terakhir
+        start_index = raw_text.find("{")
+        end_index = raw_text.rfind("}")
+
+        if start_index != -1 and end_index != -1:
+            json_str = raw_text[start_index : end_index + 1]
+            return json.loads(json_str)
+        else:
+            print(f"AI Output Error (Raw): {raw_text}")
+            raise ValueError("AI tidak memberikan format JSON yang valid.")
+
     except ResourceExhausted:
         raise HTTPException(status_code=429, detail="Kuota AI habis. Tunggu 1 menit.")
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=429, detail="Format AI rusak. Silakan coba lagi."
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error Generate Preview: {e}")
+        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
 
 
 @app.post("/courses", response_model=CourseResponse)
@@ -244,7 +278,6 @@ def get_my_courses(
     return result
 
 
-# --- BAGIAN PENTING YANG DIUPDATE ---
 @app.get("/chapters/{chapter_id}/content")
 def get_chapter_content(
     chapter_id: int,
@@ -260,6 +293,7 @@ def get_chapter_content(
 
     course = db.query(Course).filter(Course.id == chapter.course_id).first()
 
+    # --- PROMPT DIPERBARUI UNTUK MULTI-KUIS ---
     prompt = f"""
     Bertindaklah sebagai instruktur coding.
     Topik Kursus: "{course.title}"
@@ -267,16 +301,23 @@ def get_chapter_content(
 
     Tugas:
     1. Buat materi penjelasan lengkap (markdown).
-    2. Buat 1 soal kuis pilihan ganda.
+    2. Buat 1 sampai 3 soal kuis pilihan ganda secara random.
 
     Output WAJIB JSON Valid dengan struktur persis seperti ini (tanpa markdown ```json):
     {{
         "content_markdown": "Materi...",
-        "quiz": {{
-            "question": "Pertanyaan?",
-            "options": ["A", "B", "C", "D"],
-            "correct_answer": "A"
-        }}
+        "quizzes": [
+            {{
+                "question": "Pertanyaan 1?",
+                "options": ["A", "B", "C", "D"],
+                "correct_answer": "A"
+            }},
+            {{
+                "question": "Pertanyaan 2 (Opsional)?",
+                "options": ["A", "B", "C", "D"],
+                "correct_answer": "B"
+            }}
+        ]
     }}
     """
 
@@ -284,38 +325,28 @@ def get_chapter_content(
         response = model.generate_content(prompt)
         raw_text = response.text
 
-        # --- LOGIC PEMBERSIH JSON BARU (LEBIH KUAT) ---
-        # Cari kurung kurawal '{' pertama dan '}' terakhir
         start_index = raw_text.find("{")
         end_index = raw_text.rfind("}")
 
         if start_index != -1 and end_index != -1:
-            # Ambil hanya teks di antara kurung kurawal
             json_str = raw_text[start_index : end_index + 1]
-            data = json.loads(json_str)  # Coba parse
+            data = json.loads(json_str)
 
-            # Jika sukses parse, simpan
-            chapter.content_json = json.dumps(data)  # Simpan versi bersih
+            # Validasi Backward Compatibility (Jaga-jaga kalau AI cuma kasih 1 'quiz')
+            if "quiz" in data and "quizzes" not in data:
+                data["quizzes"] = [data["quiz"]]
+                del data["quiz"]
+
+            chapter.content_json = json.dumps(data)
             db.commit()
             return data
         else:
-            raise ValueError("AI tidak mengembalikan format JSON yang valid.")
-
-    except ResourceExhausted:
-        print("Kuota Habis.")
-        raise HTTPException(status_code=429, detail="Kuota AI habis. Tunggu sebentar.")
-
-    except json.JSONDecodeError:
-        print(f"Gagal Parsing JSON. Raw Text: {raw_text}")
-        # Jangan 500, tapi suruh client coba lagi (karena AI kadang halusinasi)
-        raise HTTPException(
-            status_code=429,
-            detail="Format data AI rusak. Silakan coba lagi tombol ini.",
-        )
+            raise ValueError("Format JSON AI tidak valid")
 
     except Exception as e:
-        print(f"Error Lain: {e}")
-        raise HTTPException(status_code=500, detail="Terjadi kesalahan server.")
+        print(f"Error AI: {e}")
+        # Return fallback error yang aman
+        raise HTTPException(status_code=500, detail="Gagal generate konten.")
 
 
 @app.put("/chapters/{chapter_id}/complete")

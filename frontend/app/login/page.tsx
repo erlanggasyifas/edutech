@@ -1,95 +1,17 @@
-"use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { GalleryVerticalEnd } from "lucide-react";
+import { SigninForm } from "@/components/signin-form";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    // Backend FastAPI menggunakan OAuth2PasswordRequestForm (form-data)
-    const formData = new URLSearchParams();
-    formData.append("username", username);
-    formData.append("password", password);
-
-    try {
-      const res = await fetch("http://localhost:8000/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        localStorage.setItem("token", data.access_token);
-        router.push("/"); // Redirect ke Dashboard
-      } else {
-        alert("Login Gagal! Periksa username/password.");
-      }
-    } catch (err) {
-      alert("Tidak bisa terhubung ke server.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm border border-gray-100">
-        <h1 className="text-3xl font-bold mb-2 text-blue-600 text-center">
-          Masuk
-        </h1>
-        <p className="text-gray-500 text-center mb-6">
-          Lanjutkan progres belajarmu.
-        </p>
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Username
-            </label>
-            <input
-              className="w-full text-black border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              placeholder="Username anda"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
+    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <a href="#" className="flex items-center gap-2 self-center font-medium">
+          <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
+            <GalleryVerticalEnd className="size-4" />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
-            <input
-              className="w-full text-black border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button
-            disabled={loading}
-            className="w-full bg-blue-600 text-white p-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:bg-blue-300"
-          >
-            {loading ? "Memproses..." : "Masuk Sekarang"}
-          </button>
-        </form>
-        <p className="mt-6 text-sm text-center text-gray-600">
-          Belum punya akun?{" "}
-          <a
-            href="/register"
-            className="text-blue-600 font-semibold hover:underline"
-          >
-            Daftar disini
-          </a>
-        </p>
+          EduTech Inc.
+        </a>
+        <SigninForm />
       </div>
     </div>
   );
