@@ -95,7 +95,7 @@ export function SignupForm({
               </Field>
 
               <Field>
-                <Field className="grid grid-cols-2 gap-4">
+                <Field>
                   {/* Field Password */}
                   <Field>
                     <FieldLabel htmlFor="password">Password</FieldLabel>
@@ -106,14 +106,6 @@ export function SignupForm({
                       onChange={(e) => setPassword(e.target.value)}
                       required
                     />
-                  </Field>
-
-                  {/* Field Confirm Password (Visual Saja) */}
-                  <Field>
-                    <FieldLabel htmlFor="confirm-password">
-                      Confirm Password
-                    </FieldLabel>
-                    <Input id="confirm-password" type="password" />
                   </Field>
                 </Field>
                 <FieldDescription>

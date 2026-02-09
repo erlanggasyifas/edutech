@@ -3,22 +3,33 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  ChevronLeft,
+  CheckCircle2,
+  XCircle,
+  BookOpen,
+  Trophy,
+} from "lucide-react";
+
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, XCircle, ChevronLeft } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Progress } from "@/components/ui/progress";
 
-// Tipe Data
+// --- Tipe Data ---
 interface QuizItem {
   question: string;
   options: string[];
@@ -30,25 +41,46 @@ interface ChapterContent {
   quizzes: QuizItem[];
 }
 
+interface CourseStructure {
+  id: number;
+  title: string;
+  chapters: {
+    id: number;
+    chapter_number: number;
+    title: string;
+  }[];
+}
+
 export default function ChapterPage() {
   const params = useParams();
   const router = useRouter();
-  const courseId = params.courseId;
-  const chapterId = params.chapterId;
+  const courseId = Number(params.courseId);
+  const chapterId = Number(params.chapterId);
 
   const [content, setContent] = useState<ChapterContent | null>(null);
+  const [courseData, setCourseData] = useState<CourseStructure | null>(null); // State baru untuk Sidebar
   const [loading, setLoading] = useState(true);
 
-  // --- STATE KUIS ---
-  // Menyimpan status jawaban per soal: 'unanswered', 'correct'
+  const [user, setUser] = useState({
+    name: "Loading...",
+    email: "loading@example.com",
+    avatar: "",
+  });
+
   const [quizStatus, setQuizStatus] = useState<
     Record<number, "unanswered" | "correct">
   >({});
-
-  // Menyimpan opsi yang SALAH (dikunci) per soal: { [questionIndex]: [optionIndex1, optionIndex2] }
   const [lockedOptions, setLockedOptions] = useState<Record<number, number[]>>(
     {},
   );
+
+  const parseJwt = (token: string) => {
+    try {
+      return JSON.parse(atob(token.split(".")[1]));
+    } catch (e) {
+      return null;
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -56,31 +88,63 @@ export default function ChapterPage() {
       router.push("/login");
       return;
     }
-    fetchContent(token);
-  }, []);
 
-  const fetchContent = async (token: string) => {
+    const decoded = parseJwt(token);
+    if (decoded && decoded.sub) {
+      setUser({
+        name: decoded.sub,
+        email: `${decoded.sub}@student.com`,
+        avatar: "",
+      });
+    }
+
+    fetchData(token);
+  }, [chapterId]); // Re-fetch jika pindah bab
+
+  const fetchData = async (token: string) => {
+    setLoading(true);
     try {
-      const res = await fetch(
+      // 1. Fetch Konten Chapter
+      const contentRes = await fetch(
         `http://localhost:8000/chapters/${chapterId}/content`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
       );
+      if (contentRes.ok) setContent(await contentRes.json());
 
-      if (!res.ok) throw new Error("Gagal load materi");
+      // 2. Fetch Struktur Course (Untuk Sidebar & Breadcrumb)
+      // Kita ambil dari /my-courses dan filter (karena endpoint specific course belum tentu ada)
+      const coursesRes = await fetch(`http://localhost:8000/my-courses`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (coursesRes.ok) {
+        const courses = await coursesRes.json();
+        const currentCourse = courses.find((c: any) => c.id === courseId);
+        if (currentCourse) setCourseData(currentCourse);
+      }
 
-      const data = await res.json();
-      setContent(data);
-
-      // Reset state kuis saat load baru
       setQuizStatus({});
       setLockedOptions({});
     } catch (error) {
-      alert("Terjadi kesalahan saat memuat materi.");
+      console.error(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const checkIsCorrect = (selected: string, correct: string) => {
+    const s = selected.trim().toLowerCase();
+    const c = correct.trim().toLowerCase();
+    if (s === c) return true;
+    const cleanS = s.replace(/^[a-z0-9][\.\)\-]\s*/, "");
+    if (cleanS === c) return true;
+    if (
+      c.length <= 2 &&
+      (s.startsWith(`${c}.`) || s.startsWith(`${c})`) || s.startsWith(`${c} `))
+    )
+      return true;
+    return false;
   };
 
   const handleAnswer = (
@@ -89,19 +153,18 @@ export default function ChapterPage() {
     optionIndex: number,
   ) => {
     if (!content) return;
-    const currentQuiz = content.quizzes[qIndex];
-
-    // Jika jawaban benar
-    if (selectedOption === currentQuiz.correct_answer) {
+    const isCorrect = checkIsCorrect(
+      selectedOption,
+      content.quizzes[qIndex].correct_answer,
+    );
+    if (isCorrect) {
       setQuizStatus((prev) => ({ ...prev, [qIndex]: "correct" }));
     } else {
-      // Jika salah, kunci opsi tersebut (disable)
       setLockedOptions((prev) => {
-        const currentLocks = prev[qIndex] || [];
-        if (!currentLocks.includes(optionIndex)) {
-          return { ...prev, [qIndex]: [...currentLocks, optionIndex] };
-        }
-        return prev;
+        const current = prev[qIndex] || [];
+        return !current.includes(optionIndex)
+          ? { ...prev, [qIndex]: [...current, optionIndex] }
+          : prev;
       });
     }
   };
@@ -109,26 +172,34 @@ export default function ChapterPage() {
   const handleCompleteChapter = async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
-
     try {
       await fetch(`http://localhost:8000/chapters/${chapterId}/complete`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      // Redirect kembali ke dashboard atau bisa juga next chapter logic
       router.push("/");
     } catch (error) {
-      alert("Gagal menyimpan progres.");
+      alert("Gagal menyimpan.");
     }
   };
 
-  // Cek apakah semua kuis sudah terjawab benar
-  const allCorrect =
-    content && content.quizzes
-      ? content.quizzes.length > 0 &&
-        content.quizzes.every((_, idx) => quizStatus[idx] === "correct")
-      : true; // Jika tidak ada kuis, anggap selesai
+  const totalQuizzes = content?.quizzes?.length || 0;
+  const correctAnswers = Object.values(quizStatus).filter(
+    (s) => s === "correct",
+  ).length;
+  const progressPercent =
+    totalQuizzes > 0 ? (correctAnswers / totalQuizzes) * 100 : 100;
+  const allCorrect = progressPercent === 100;
+
+  // --- LOGIC BREADCRUMB ---
+  // Cari data chapter sekarang dari list courseData
+  const currentChapterInfo = courseData?.chapters.find(
+    (c) => c.id === chapterId,
+  );
+  // Jika ketemu, gunakan chapter_number, jika tidak fallback ke ID (tapi ini jarang terjadi)
+  const breadcrumbLabel = currentChapterInfo
+    ? `Chapter ${currentChapterInfo.chapter_number}`
+    : `Chapter ${chapterId}`;
 
   return (
     <SidebarProvider
@@ -139,132 +210,214 @@ export default function ChapterPage() {
         } as React.CSSProperties
       }
     >
-      {/* Sidebar tanpa setView (Mode Navigasi) */}
-      <AppSidebar variant="inset" />
+      {/* SIDEBAR DINAMIS: Kirim courseData dan chapterId */}
+      <AppSidebar
+        variant="inset"
+        user={user}
+        courseData={courseData || undefined} // Kirim struktur course
+        currentChapterId={chapterId} // Untuk highlight aktif
+      />
 
-      <SidebarInset>
+      <SidebarInset className="overflow-hidden">
         <SiteHeader />
+        <div className="flex flex-col h-[calc(100vh-4rem)]">
+          {/* HEADER */}
+          <div className="px-6 py-4 border-b flex items-center justify-between bg-background z-20 shadow-sm">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink href="/" className="flex items-center gap-1">
+                    Dashboard
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  {/* Breadcrumb Course Title */}
+                  <BreadcrumbLink
+                    href="#"
+                    className="font-medium text-muted-foreground hidden md:block"
+                  >
+                    {courseData?.title || "Loading..."}
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem>
+                  {/* BREADCRUMB FIXED: Menampilkan Chapter Number yang Benar */}
+                  <BreadcrumbPage className="font-semibold text-primary">
+                    {breadcrumbLabel}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
 
-        <div className="flex flex-1 flex-col gap-4 p-4 pt-0 max-w-4xl mx-auto w-full">
-          {/* Tombol Kembali */}
-          <div className="mb-2">
-            <Button
-              variant="ghost"
-              className="gap-2 pl-0 hover:bg-transparent hover:underline"
-              onClick={() => router.push("/")}
-            >
-              <ChevronLeft size={16} /> Kembali ke Materi
-            </Button>
+            {!loading && content && totalQuizzes > 0 && (
+              <div className="flex items-center gap-3 w-48 animate-in fade-in">
+                <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                  {correctAnswers} / {totalQuizzes} Soal
+                </span>
+                <Progress value={progressPercent} className="h-2" />
+              </div>
+            )}
           </div>
 
-          {loading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-8 w-3/4" />
-              <Skeleton className="h-64 w-full" />
-              <Skeleton className="h-40 w-full" />
-            </div>
-          ) : content ? (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-20">
-              {/* --- MATERI UTAMA --- */}
-              <Card className="shadow-sm border-none bg-background">
-                <CardContent className="pt-6 prose prose-blue max-w-none dark:prose-invert">
-                  <ReactMarkdown>{content.content_markdown}</ReactMarkdown>
-                </CardContent>
-              </Card>
-
-              {/* --- AREA KUIS --- */}
-              {content.quizzes && content.quizzes.length > 0 && (
+          {/* CONTENT */}
+          <div className="flex-1 overflow-y-auto px-6 py-8 scroll-smooth">
+            <div className="mx-auto pb-24 p-8">
+              {loading ? (
                 <div className="space-y-6">
-                  <div className="flex items-center gap-3">
-                    <Badge variant="secondary" className="text-sm px-3 py-1">
-                      Kuis Interaktif
-                    </Badge>
-                    <span className="text-muted-foreground text-sm">
-                      Selesaikan semua soal untuk lanjut.
-                    </span>
-                  </div>
-
-                  {content.quizzes.map((quiz, qIndex) => {
-                    const isCorrect = quizStatus[qIndex] === "correct";
-
-                    return (
-                      <Card
-                        key={qIndex}
-                        className={`overflow-hidden transition-all duration-300 ${isCorrect ? "border-green-200 bg-green-50/30" : "border-border"}`}
-                      >
-                        <CardHeader className="bg-muted/30 pb-4">
-                          <CardTitle className="text-base font-medium flex gap-3 items-start">
-                            <span className="bg-primary/10 text-primary w-6 h-6 rounded flex items-center justify-center text-xs shrink-0 mt-0.5">
-                              {qIndex + 1}
-                            </span>
-                            {quiz.question}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pt-4 grid gap-3">
-                          {quiz.options.map((opt, optIndex) => {
-                            const isLocked =
-                              lockedOptions[qIndex]?.includes(optIndex);
-                            const isSelectedCorrect =
-                              isCorrect && opt === quiz.correct_answer;
-
-                            return (
-                              <button
-                                key={optIndex}
-                                onClick={() =>
-                                  handleAnswer(qIndex, opt, optIndex)
-                                }
-                                disabled={isCorrect || isLocked}
-                                className={`
-                                  relative w-full text-left p-4 rounded-lg border-2 text-sm font-medium transition-all duration-200
-                                  flex items-center justify-between group
-                                  ${
-                                    isSelectedCorrect
-                                      ? "bg-green-100 border-green-500 text-green-900 shadow-sm" // Jawaban Benar
-                                      : isLocked
-                                        ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60" // Jawaban Salah (Kekunci)
-                                        : "bg-background border-muted hover:border-primary/50 hover:shadow-md" // Normal
-                                  }
-                                `}
-                              >
-                                <span>{opt}</span>
-                                {isSelectedCorrect && (
-                                  <CheckCircle2 className="text-green-600 w-5 h-5 animate-in zoom-in" />
-                                )}
-                                {isLocked && (
-                                  <XCircle className="text-gray-400 w-5 h-5" />
-                                )}
-                              </button>
-                            );
-                          })}
-                        </CardContent>
-                        {isCorrect && (
-                          <CardFooter className="bg-green-100/50 py-3 px-6 text-green-700 text-sm font-semibold flex items-center gap-2">
-                            <CheckCircle2 size={16} /> Jawaban Benar!
-                          </CardFooter>
-                        )}
-                      </Card>
-                    );
-                  })}
+                  <Skeleton className="h-10 w-3/4" />
+                  <Skeleton className="h-64 w-full rounded-xl" />
                 </div>
-              )}
+              ) : content ? (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-10">
+                  {/* ... (BAGIAN MATERI & KUIS TETAP SAMA SEPERTI SEBELUMNYA) ... */}
+                  <section>
+                    <div className="flex items-center ps-8 gap-2 text-primary">
+                      <h2 className="text-2xl font-bold tracking-tight">
+                        Materi Pembelajaran
+                      </h2>
+                    </div>
+                    <Card className="border-none shadow-sm bg-slate-50/50 dark:bg-slate-900/50">
+                      <CardContent className="px-8">
+                        <article className="prose prose-slate max-w-none dark:prose-invert prose-headings:font-bold prose-headings:tracking-tight prose-a:text-primary hover:prose-a:underline prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:rounded prose-img:rounded-xl">
+                          <Card className="border-none shadow-sm bg-slate-50/50 dark:bg-slate-900/50">
+                            <CardContent className="pt-8 px-8 pb-8">
+                              <article
+                                className="
+                                                    prose prose-slate max-w-none dark:prose-invert
+                                                    prose-headings:font-bold prose-headings:tracking-tight
+                                                    prose-a:text-primary hover:prose-a:underline
+                                                    prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:rounded
+                                                    prose-img:rounded-xl
 
-              {/* --- FOOTER ACTION --- */}
-              <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t flex justify-center z-10 md:pl-[--sidebar-width]">
-                <div className="w-full max-w-4xl flex justify-end">
-                  <Button
-                    size="lg"
-                    onClick={handleCompleteChapter}
-                    disabled={!allCorrect} // Disable jika belum semua benar
-                    className={`transition-all duration-300 ${allCorrect ? "bg-green-600 hover:bg-green-700 shadow-lg hover:shadow-green-500/20" : ""}`}
+                                                    /* TAMBAHAN CSS KHUSUS TABEL AGAR CANTIK */
+                                                    prose-table:border-collapse prose-table:border prose-table:border-border prose-table:w-full prose-table:my-6
+                                                    prose-th:bg-muted prose-th:p-4 prose-th:text-left prose-th:font-bold prose-th:border prose-th:border-border
+                                                    prose-td:p-4 prose-td:border prose-td:border-border
+                                                  "
+                              >
+                                {/* Tambahkan remarkPlugins={[remarkGfm]} */}
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {content.content_markdown}
+                                </ReactMarkdown>
+                              </article>
+                            </CardContent>
+                          </Card>
+                        </article>
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  <Separator />
+
+                  {content.quizzes?.length > 0 && (
+                    <section>
+                      <div className="flex items-center gap-2 mb-6 text-black">
+                        <h2 className="text-2xl font-bold tracking-tight">
+                          Tantangan Kuis
+                        </h2>
+                      </div>
+                      <div className="grid gap-6">
+                        {content.quizzes.map((quiz, qIndex) => {
+                          const isCorrect = quizStatus[qIndex] === "correct";
+                          return (
+                            <Card
+                              key={qIndex}
+                              className={`relative overflow-hidden border-2 transition-all duration-300 ${isCorrect ? "border-green-500 bg-green-50/20 dark:bg-green-900/10" : "border-border hover:border-primary/30"}`}
+                            >
+                              {isCorrect && (
+                                <div className="absolute top-0 right-0 bg-green-500 text-white px-3 py-1 rounded-bl-xl text-xs font-bold flex items-center gap-1 z-10">
+                                  <CheckCircle2 size={12} /> Selesai
+                                </div>
+                              )}
+                              <CardHeader className="pb-2">
+                                <CardTitle className="text-lg font-medium flex gap-4">
+                                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-muted text-sm font-bold text-muted-foreground">
+                                    {qIndex + 1}
+                                  </span>
+                                  <span>{quiz.question}</span>
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent className="pt-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  {quiz.options.map((opt, optIndex) => {
+                                    const isLocked =
+                                      lockedOptions[qIndex]?.includes(optIndex);
+                                    const isThisCorrect =
+                                      isCorrect &&
+                                      checkIsCorrect(opt, quiz.correct_answer);
+                                    return (
+                                      <button
+                                        key={optIndex}
+                                        onClick={() =>
+                                          handleAnswer(qIndex, opt, optIndex)
+                                        }
+                                        disabled={isCorrect || isLocked}
+                                        className={`group relative flex items-center justify-between p-4 rounded-xl border text-sm font-medium transition-all duration-200 text-left ${isThisCorrect ? "bg-green-600 text-white border-green-600 shadow-lg scale-[1.02]" : isLocked ? "bg-muted text-muted-foreground border-transparent opacity-50 cursor-not-allowed" : "bg-background hover:bg-accent hover:border-primary/50"}`}
+                                      >
+                                        <span className="pr-6">{opt}</span>
+                                        {isThisCorrect && (
+                                          <CheckCircle2 className="h-5 w-5 animate-in zoom-in spin-in-12" />
+                                        )}
+                                        {isLocked && (
+                                          <XCircle className="h-5 w-5" />
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {!loading && content && (
+            <div className="fixed bottom-6 left-0 right-0 z-50 flex justify-center pointer-events-none px-6 md:pl-[var(--sidebar-width)]">
+              <div className="bg-background/80 backdrop-blur-lg border shadow-2xl rounded-2xl p-2 flex items-center gap-4 pointer-events-auto animate-in slide-in-from-bottom-6 duration-500">
+                <div className="px-4 hidden md:block">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">
+                    Status Pengerjaan
+                  </p>
+                  <p
+                    className={`font-bold ${allCorrect ? "text-green-600" : "text-black"}`}
                   >
                     {allCorrect
-                      ? "Selesai & Lanjut 🚀"
-                      : "Selesaikan Kuis Dulu 🔒"}
-                  </Button>
+                      ? "Siap Lanjut!"
+                      : `${correctAnswers} dari ${totalQuizzes} Selesai`}
+                  </p>
                 </div>
+                <Separator
+                  orientation="vertical"
+                  className="h-8 hidden md:block"
+                />
+                <Button
+                  size="lg"
+                  onClick={() => router.push("/")}
+                  variant="secondary"
+                  className="rounded-xl hover:bg-muted"
+                >
+                  <ChevronLeft size={16} className="mr-2" /> Kembali
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={handleCompleteChapter}
+                  disabled={!allCorrect}
+                  className={`rounded-xl px-8 font-bold transition-all duration-300 ${allCorrect ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 shadow-lg" : "bg-gray-200 text-gray-400 dark:bg-gray-800"}`}
+                >
+                  {allCorrect
+                    ? "Selesaikan Bab Ini 🎉"
+                    : "Kunci Jawaban Dulu 🔒"}
+                </Button>
               </div>
             </div>
-          ) : null}
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

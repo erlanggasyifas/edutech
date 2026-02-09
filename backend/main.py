@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import google.generativeai as genai
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -16,19 +17,22 @@ from pydantic import BaseModel
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
 
+# Load environment variables dari file .env
+load_dotenv()
+
 # --- KONFIGURASI ---
-GOOGLE_API_KEY = (
-    "AIzaSyAhYtyu1S-Z1N1bcXDXdbLLU3HC6P17Ae0"  # Pastikan API KEY Anda ada di sini
-)
-SECRET_KEY = "4aeb5dfce0a4bc62c327fb326de5427c69c8f3f42febea52701fb220f5b71091"
+# Ambil dari .env
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY")  # Fallback jika tidak ada
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 ALGORITHM = "HS256"
+
+# Validasi agar tidak crash kalau lupa isi .env
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY belum diset di file .env!")
 
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-flash-latest")
-
-# --- DATABASE SETUP (MySQL) ---
-# Sesuaikan password jika perlu (format: root:password@localhost)
-SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:@localhost:3306/edutech_db"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -295,31 +299,37 @@ def get_chapter_content(
 
     # --- PROMPT DIPERBARUI UNTUK MULTI-KUIS ---
     prompt = f"""
-    Bertindaklah sebagai instruktur coding.
-    Topik Kursus: "{course.title}"
-    Bab Saat Ini: "{chapter.title}".
+        Bertindaklah sebagai Mentor Coding yang asik, ramah, dan interaktif (seperti teman mengajar teman).
 
-    Tugas:
-    1. Buat materi penjelasan lengkap (markdown).
-    2. Buat 1 sampai 3 soal kuis pilihan ganda secara random.
+        Topik Kursus: "{course.title}"
+        Bab Saat Ini: "{chapter.title}".
 
-    Output WAJIB JSON Valid dengan struktur persis seperti ini (tanpa markdown ```json):
-    {{
-        "content_markdown": "Materi...",
-        "quizzes": [
-            {{
-                "question": "Pertanyaan 1?",
-                "options": ["A", "B", "C", "D"],
-                "correct_answer": "A"
-            }},
-            {{
-                "question": "Pertanyaan 2 (Opsional)?",
-                "options": ["A", "B", "C", "D"],
-                "correct_answer": "B"
-            }}
-        ]
-    }}
-    """
+        Instruksi Konten:
+        1.  **Gaya Bahasa:** Gunakan Bahasa Indonesia yang santai, tidak kaku, dan mudah dipahami pemula. Hindari definisi buku teks yang membosankan.
+        2.  **Analogi:** WAJIB gunakan analogi dunia nyata untuk menjelaskan konsep teknis (misal: "Variable itu ibarat wadah makanan...").
+        3.  **Interaktif:** Sapa pembaca, ajak mereka membayangkan sesuatu.
+        4.  **Format Tabel:** JIKA menjelaskan perbandingan (misal: Kelebihan vs Kekurangan, Tipe A vs Tipe B), WAJIB gunakan format Markdown Table yang valid.
+
+        Contoh Tabel Markdown yang diharapkan:
+        | Fitur | Penjelasan |
+        |---|---|
+        | Kecepatan | Sangat Cepat |
+
+        Instruksi Kuis:
+        Buat 1 sampai 3 soal kuis pilihan ganda yang relevan dengan materi di atas.
+
+        Output WAJIB JSON Valid (tanpa markdown ```json):
+        {{
+            "content_markdown": "Materi lengkap dengan format markdown (heading, bold, list, tabel)...",
+            "quizzes": [
+                {{
+                    "question": "Pertanyaan?",
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "A"
+                }}
+            ]
+        }}
+        """
 
     try:
         response = model.generate_content(prompt)

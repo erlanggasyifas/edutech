@@ -13,8 +13,8 @@ import {
   CardTitle,
   CardDescription,
   CardFooter,
-} from "@/components/ui/card"; // Asumsi pakai shadcn card
-import { Badge } from "@/components/ui/badge"; // Asumsi pakai shadcn badge
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 // --- Tipe Data Typescript ---
 interface Chapter {
@@ -40,21 +40,48 @@ export default function Dashboard() {
   // State View
   const [view, setView] = useState<"dashboard" | "create">("dashboard");
 
-  // State Data
+  // State Data Course
   const [myCourses, setMyCourses] = useState<Course[]>([]);
   const [previewCourse, setPreviewCourse] = useState<any>(null);
+
+  // State User untuk Sidebar (BARU)
+  const [user, setUser] = useState({
+    name: "Loading...",
+    email: "loading@example.com",
+    avatar: "",
+  });
 
   // State Input
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 1. Cek Login saat load
+  // --- HELPER: Decode JWT Token ---
+  const parseJwt = (token: string) => {
+    try {
+      return JSON.parse(atob(token.split(".")[1]));
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // 1. Cek Login & Load User Data saat load
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (!t) {
       router.push("/login");
     } else {
       setToken(t);
+
+      // Ambil Info User dari Token
+      const decoded = parseJwt(t);
+      if (decoded && decoded.sub) {
+        setUser({
+          name: decoded.sub, // Username dari token
+          email: `${decoded.sub}@student.com`, // Dummy email
+          avatar: "", // Kosongkan biar jadi inisial
+        });
+      }
+
       fetchMyCourses(t);
     }
   }, []);
@@ -154,9 +181,8 @@ export default function Dashboard() {
         } as React.CSSProperties
       }
     >
-      {/* Pass setView ke Sidebar */}
-      <AppSidebar variant="inset" setView={setView} />
-
+      {/* UPDATE: Pass 'user' ke Sidebar */}
+      <AppSidebar variant="inset" user={user} setView={setView} />
       <SidebarInset>
         <SiteHeader />
 
@@ -286,7 +312,6 @@ export default function Dashboard() {
                       Kurikulum
                     </div>
                     <div className="grid gap-3">
-                      {/* PERBAIKAN DI SINI: Tambahkan tanda tanya (?) dan fallback array kosong */}
                       {previewCourse.chapters?.length > 0 ? (
                         previewCourse.chapters.map((ch: any) => (
                           <div
